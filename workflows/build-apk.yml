@@ -6,202 +6,34 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          openjdk-17-jdk \
-          zip \
-          unzip \
-          autoconf \
-          libtool \
-          pkg-config \
-          zlib1g-dev \
-          libncurses5-dev \
-          libncursesw5-dev \
-          libtinfo5 \
-          cmake \
-          libffi-dev \
-          libssl-dev \
-          git
-        
-        # Устанавливаем Java 8 для совместимости с Android SDK
-        sudo apt-get install -y openjdk-8-jdk
-        sudo update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java
-    
+
     - name: Install Buildozer
       run: |
-        pip install --upgrade pip
-        pip install buildozer cython==0.29.37
-        pip install kivy==2.3.0
-    
-    - name: Setup Android SDK with specific versions
+        python -m pip install --upgrade pip
+        pip install buildozer cython==0.29.37 kivy==2.3.0
+
+    - name: Configure and build APK
       run: |
-        # Создаем директории
-        mkdir -p $HOME/.android
-        mkdir -p $HOME/android-sdk/cmdline-tools
-        
-        cd $HOME/android-sdk
-        
-        # Скачиваем стабильную версию command line tools (не последнюю)
-        wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-        unzip -q commandlinetools-linux-9477386_latest.zip -d cmdline-tools/
-        
-        # Правильная структура
-        mv cmdline-tools/cmdline-tools cmdline-tools/latest 2>/dev/null || true
-        
-        # Устанавливаем переменные окружения
-        echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
-        echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
-        echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
-        
-        # Создаем файл для лицензий
-        touch $HOME/.android/repositories.cfg
-        
-        # Делаем sdkmanager исполняемым
-        chmod +x $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager
-        chmod +x $HOME/android-sdk/cmdline-tools/latest/bin/avdmanager
-        
-        # Проверяем установку
-        $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --version
-    
-    - name: Accept all SDK licenses
-      run: |
-        export ANDROID_SDK_ROOT=$HOME/android-sdk
-        export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
-        
-        # Принимаем все лицензии автоматически
-        yes | sdkmanager --licenses > /dev/null 2>&1 || true
-        
-        # Обновляем SDK
-        sdkmanager --update
-    
-    - name: Install required SDK components
-      run: |
-        export ANDROID_SDK_ROOT=$HOME/android-sdk
-        export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
-        
-        # Устанавливаем только необходимые компоненты
-        sdkmanager --install \
-          "platform-tools" \
-          "platforms;android-33" \
-          "build-tools;33.0.2" \
-          "ndk;25.2.9519653" \
-          "cmake;3.22.1"
-        
-        # Удаляем старые версии если есть
-        rm -rf $ANDROID_SDK_ROOT/build-tools/37* 2>/dev/null || true
-    
-    - name: Create buildozer.spec
-      run: |
-        cat > buildozer.spec << 'EOF'
-[app]
+        buildozer init
+        sed -i 's/title = .*/title = Три Кота Аэрохоккей/' buildozer.spec
+        sed -i 's/package.name = .*/package.name = trikotahockey/' buildozer.spec
+        sed -i 's/source.include_exts = .*/source.include_exts = py,png,jpg,kv,atlas,wav,mp3,json/' buildozer.spec
+        sed -i 's/requirements = .*/requirements = python3,kivy==2.3.0/' buildozer.spec
+        sed -i 's/orientation = .*/orientation = landscape/' buildozer.spec
+        sed -i 's/fullscreen = .*/fullscreen = 1/' buildozer.spec
+        buildozer android debug
 
-title = Три Кота Аэрохоккей
-package.name = trikotahockey
-package.domain = org.trikota
-
-source.dir = .
-source.include_exts = py,png,jpg,kv,atlas,wav,mp3,json
-version = 0.1
-requirements = python3,kivy==2.3.0
-orientation = landscape
-osx.python_version = 3
-osx.kivy_version = 2.3.0
-fullscreen = 0
-
-# Android specific
-android.accept_sdk_license = True
-android.minapi = 21
-android.sdk = 33
-android.ndk = 25.2.9519653
-android.build_tools = 33.0.2
-android.api = 33
-android.permissions = INTERNET, WRITE_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE
-android.gradle_dependencies = ''
-android.enable_androidx = True
-android.use_androidx = True
-
-# (str) Android SDK path
-android.sdk_path = %(env:ANDROID_SDK_ROOT)s
-
-# (str) Android NDK path
-android.ndk_path = %(env:ANDROID_SDK_ROOT)s/ndk/25.2.9519653
-
-# (list) Gradle dependencies to add
-android.gradle_dependencies = ''
-
-# (bool) Enable AndroidX
-android.enable_androidx = True
-
-# (str) Android logcat filters
-android.logcat_filters = *:S python:D
-
-[buildozer]
-
-log_level = 2
-warn_on_root = 1
-EOF
-
-    - name: Fix Buildozer's gradle version
-      run: |
-        # Создаем директорию для шаблонов Buildozer
-        mkdir -p ~/.local/share/buildozer/.buildozer/android/platform/
-        
-        # Создаем файл для указания версии gradle
-        cat > ~/.local/share/buildozer/.buildozer/android/platform/gradle_version.txt << 'EOF'
-gradle-7.5
-EOF
-        
-        # Создаем симлинк для правильной версии gradle
-        cd ~/.local/share/buildozer/.buildozer/android/platform/
-        wget -q https://services.gradle.org/distributions/gradle-7.5-bin.zip
-        unzip -q gradle-7.5-bin.zip
-        mv gradle-7.5 gradle
-        
-        echo "Gradle 7.5 installed"
-    
-    - name: Build APK
-      run: |
-        export ANDROID_HOME=$HOME/android-sdk
-        export ANDROID_SDK_ROOT=$HOME/android-sdk
-        export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
-        export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
-        
-        # Проверяем наличие main.py
-        if [ ! -f main.py ]; then
-          echo "ERROR: main.py not found!"
-          echo "Current directory contents:"
-          ls -la
-          exit 1
-        fi
-        
-        # Очищаем предыдущие сборки
-        buildozer android clean
-        
-        # Собираем APK
-        buildozer -v android debug 2>&1 | tee build.log
-    
     - name: Upload APK
-      if: success()
       uses: actions/upload-artifact@v4
       with:
         name: trikota-apk
         path: bin/*.apk
-    
-    - name: Upload build log if failed
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-log
-        path: build.log
